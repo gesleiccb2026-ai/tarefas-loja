@@ -184,22 +184,24 @@ with aba3:
         filtro_colab = st.selectbox("Filtrar por colaborador:", ["Todos"] + list(EQUIPE.keys()))
         df_exibir = df if filtro_colab == "Todos" else df[df["colaborador"] == filtro_colab]
         
-        colunas_tabela = ["data_hora", "colaborador", "unidade", "tarefa", "percentual", "pontos", "observacao"]
-        st.dataframe(df_exibir[colunas_tabela], use_container_width=True, hide_index=True)
+        # Filtra apenas as colunas que realmente existem no DataFrame (evita KeyError)
+        colunas_desejadas = ["data_hora", "colaborador", "unidade", "tarefa", "percentual", "pontos", "observacao"]
+        colunas_validas = [c for c in colunas_desejadas if c in df_exibir.columns]
+        st.dataframe(df_exibir[colunas_validas], use_container_width=True, hide_index=True)
         
         st.divider()
         st.subheader("📸 Gerenciar Foto / Registro")
         
         opcoes_reg = {
-            f"#{row['id']} | {row['data_hora']} - {row['colaborador'].split(' (')[0]} ({row['tarefa']})": row
-            for _, row in df_exibir.iterrows()
+            f"#{row.get('id', idx)} | {row.get('data_hora', '')} - {str(row.get('colaborador', '')).split(' (')[0]} ({row.get('tarefa', '')})": row
+            for idx, row in df_exibir.iterrows()
         }
         
         if opcoes_reg:
             selecionado_label = st.selectbox("Selecione o lançamento:", list(opcoes_reg.keys()))
             reg_atual = opcoes_reg[selecionado_label]
-            reg_id = reg_atual["id"]
-            colab_dono = reg_atual["colaborador"]
+            reg_id = reg_atual.get("id")
+            colab_dono = reg_atual.get("colaborador", "")
             foto_existente = reg_atual.get("foto_base64", "")
             
             # Exibe a foto atual se existir
@@ -209,7 +211,7 @@ with aba3:
                 st.info("Este lançamento ainda não possui foto anexada.")
             
             st.markdown("#### 🔧 Alterar Foto ou Excluir")
-            st.caption(f"Digite o PIN de **{colab_dono.split(' (')[0]}** ou o PIN do **Administrador (Géslei)** para confirmar:")
+            st.caption(f"Digite o PIN de **{str(colab_dono).split(' (')[0]}** ou o PIN do **Administrador (Géslei)** para confirmar:")
             pin_confirmacao = st.text_input("PIN de autorização:", type="password", max_chars=4, key="pin_gerenciar")
             
             nova_foto_upload = st.file_uploader("Enviar nova foto (substitui a atual ou adiciona foto depois de organizado):", type=["jpg", "jpeg", "png"], key="nova_foto_hist")
