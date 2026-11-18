@@ -21,7 +21,7 @@ HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
-    "Prefer": "return=minimal"
+    "Prefer": "return=representation"
 }
 
 # --- EQUIPE COMPLETA (10 COLABORADORES) E PIN DE ACESSO (4 dígitos) ---
@@ -62,18 +62,23 @@ def obter_hora_brasilia():
         agora_sp = datetime.now(timezone.utc) - timedelta(hours=3)
     return agora_sp.strftime("%d/%m/%Y %H:%M")
 
-# --- COMPRESSÃO LEVE EM MINIATURA (NÃO SOBRECARREGA O BANCO) ---
+# --- COMPRESSÃO LEVE EM MINIATURA ---
 def processar_foto_miniatura(foto_enviada):
     if foto_enviada is None:
         return ""
-    img = Image.open(foto_enviada)
-    if img.mode in ("RGBA", "P"):
-        img = img.convert("RGB")
-    img.thumbnail((450, 450))
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=60)
-    img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-    return f"data:image/jpeg;base64,{img_base64}"
+    try:
+        foto_enviada.seek(0)
+        img = Image.open(foto_enviada)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        img.thumbnail((450, 450))
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=60)
+        img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        return f"data:image/jpeg;base64,{img_base64}"
+    except Exception as e:
+        st.error(f"Erro ao processar imagem: {e}")
+        return ""
 
 # --- EMPACOTA E DESEMPACOTA FOTOS ANTES / DEPOIS NO MESMO CAMPO ---
 def empacotar_fotos(antes_b64, depois_b64):
@@ -91,10 +96,21 @@ def extrair_fotos(valor_campo):
             return dados.get("antes", ""), dados.get("depois", "")
         except Exception:
             return "", ""
-    # Compatibilidade com registros antigos de foto única
     if texto.startswith("data:image"):
         return "", texto
     return "", ""
+
+# --- CALCULA PORCENTAGEM REAL A PARTIR DOS PONTOS ---
+def calcular_percentual_registro(row):
+    if "percentual" in row and pd.notna(row["percentual"]) and int(row["percentual"]) > 0:
+        return int(row["percentual"])
+    tarefa_nome = row.get("tarefa", "")
+    pontos_reg = float(row.get("pontos", 0) or 0)
+    peso_tarefa = TAREFAS.get(tarefa_nome, 20)
+    if peso_tarefa > 0 and pontos_reg > 0:
+        calc = int(round((pontos_reg / peso_tarefa) * 100 / 10.0) * 10)
+        return max(0, min(100, calc))
+    return 0
 
 # --- FUNÇÕES DE BANCO DE DADOS ---
 def carregar_dados():
@@ -106,12 +122,21 @@ def carregar_dados():
                 return pd.DataFrame(dados)
     except Exception as e:
         st.error(f"Erro ao conectar com o banco de dados: {e}")
-    return pd.DataFrame(columns=["id", "data_hora", "colaborador", "unidade", "tarefa", "percentual", "pontos", "observacao", "foto_base64"])
+    return pd.DataFrame(columns=["id", "data_hora", "colaborador", "tarefa", "pontos", "observacao", "foto_base64"])
 
 def salvar_registro(registro):
     try:
+        # Envia primeiro com todas as colunas; se alguma coluna opcional não existir na tabela, reenvia sem ela
         res = requests.post(TABELA_URL, json=registro, headers=HEADERS, timeout=10)
-        return res.status_code in [200, 201]
+        if res.status_code in [200, 201]:
+            return True
+        # Fallback caso 'unidade' ou 'percentual' não existam no schema do Supabase
+        registro_enxuto = {k: v for k, v in registro.items() if k not in ["unidade", "percentual"]}
+        res2 = requests.post(TABELA_URL, json=registro_enxuto, headers=HEADERS, timeout=10)
+        if res2.status_code in [200, 201]:
+            return True
+        st.error(f"Erro Supabase ({res2.status_code}): {res2.text}")
+        return False
     except Exception as e:
         st.error(f"Erro ao salvar registro: {e}")
         return False
@@ -119,7 +144,15 @@ def salvar_registro(registro):
 def atualizar_registro(registro_id, campos_atualizados):
     try:
         res = requests.patch(f"{TABELA_URL}?id=eq.{registro_id}", json=campos_atualizados, headers=HEADERS, timeout=10)
-        return res.status_code in [200, 204]
+        if res.status_code in [200, 204]:
+            return True
+        # Fallback se 'percentual' não existir na tabela
+        campos_enxutos = {k: v for k, v in campos_atualizados.items() if k != "percentual"}
+        res2 = requests.patch(f"{TABELA_URL}?id=eq.{registro_id}", json=campos_enxutos, headers=HEADERS, timeout=10)
+        if res2.status_code in [200, 204]:
+            return True
+        st.error(f"Erro ao atualizar ({res2.status_code}): {res2.text}")
+        return False
     except Exception as e:
         st.error(f"Erro ao atualizar registro: {e}")
         return False
@@ -151,7 +184,6 @@ with aba1:
     if tarefa_escolhida == "Outra atividade (Descrever)":
         tarefa_final = st.text_input("Descreva a atividade realizada:", placeholder="Ex: Organização da vitrine de conexões")
         
-    # Porcentagem inicia em 0 e avança conforme o lançamento
     percentual = st.slider("Porcentagem concluída (avance conforme o progresso):", min_value=0, max_value=100, value=0, step=10)
     observacao = st.text_input("Observação (opcional):", placeholder="Ex: Prateleira B concluída / Retalhos 3/4 medidos")
     
@@ -178,11 +210,13 @@ with aba1:
         elif not tarefa_final.strip():
             st.warning("⚠️ Por favor, descreva a atividade realizada.")
         else:
-            with st.spinner("Salvando na nuvem..."):
+            with st.spinner("Salvando fotos e registro na nuvem..."):
                 agora_br = obter_hora_brasilia()
                 antes_b64 = processar_foto_miniatura(foto_antes)
                 depois_b64 = processar_foto_miniatura(foto_depois)
                 pacote_fotos = empacotar_fotos(antes_b64, depois_b64)
+                
+                obs_com_unidade = f"[{unidade.split(' ')[0]} {unidade.split(' ')[1]}] {observacao.strip()}".strip()
                 
                 novo_reg = {
                     "data_hora": agora_br,
@@ -191,14 +225,12 @@ with aba1:
                     "tarefa": tarefa_final.strip(),
                     "percentual": percentual,
                     "pontos": pontos_calculados,
-                    "observacao": observacao.strip(),
+                    "observacao": obs_com_unidade,
                     "foto_base64": pacote_fotos
                 }
                 if salvar_registro(novo_reg):
-                    st.success(f"✅ Lançado às {agora_br}! +{pontos_calculados} pts para {colaborador.split(' (')[0]}.")
+                    st.success(f"✅ Lançado às {agora_br}! +{pontos_calculados} pts ({percentual}%) para {colaborador.split(' (')[0]}.")
                     st.balloons()
-                else:
-                    st.error("Falha ao salvar. Tente novamente.")
 
 # ================= ABA 2: ÍNDICES E RANKING =================
 with aba2:
@@ -221,14 +253,19 @@ with aba2:
 # ================= ABA 3: HISTÓRICO E GESTÃO DE FOTOS / AVANÇO =================
 with aba3:
     st.subheader("Histórico de Atividades")
+    if st.button("🔄 Atualizar Lista", key="btn_refresh_hist"):
+        st.rerun()
+        
     df = carregar_dados()
     if df.empty:
         st.info("Nenhum registro encontrado.")
     else:
+        df["progresso_%"] = df.apply(calcular_percentual_registro, axis=1)
+        
         filtro_colab = st.selectbox("Filtrar por colaborador:", ["Todos"] + list(EQUIPE.keys()))
         df_exibir = df if filtro_colab == "Todos" else df[df["colaborador"] == filtro_colab]
         
-        colunas_desejadas = ["data_hora", "colaborador", "unidade", "tarefa", "percentual", "pontos", "observacao"]
+        colunas_desejadas = ["data_hora", "colaborador", "tarefa", "progresso_%", "pontos", "observacao"]
         colunas_validas = [c for c in colunas_desejadas if c in df_exibir.columns]
         st.dataframe(df_exibir[colunas_validas], use_container_width=True, hide_index=True)
         
@@ -236,7 +273,7 @@ with aba3:
         st.subheader("📸 Gerenciar Antes/Depois, Avanço ou Excluir")
         
         opcoes_reg = {
-            f"#{row.get('id', idx)} | {row.get('data_hora', '')} - {str(row.get('colaborador', '')).split(' (')[0]} ({row.get('tarefa', '')})": row
+            f"#{row.get('id', idx)} | {row.get('data_hora', '')} - {str(row.get('colaborador', '')).split(' (')[0]} ({row.get('tarefa', '')} - {row.get('progresso_%', 0)}%)": row
             for idx, row in df_exibir.iterrows()
         }
         
@@ -246,7 +283,7 @@ with aba3:
             reg_id = reg_atual.get("id")
             colab_dono = reg_atual.get("colaborador", "")
             tarefa_reg = reg_atual.get("tarefa", "")
-            perc_atual = int(reg_atual.get("percentual", 0) or 0)
+            perc_atual = int(reg_atual.get("progresso_%", 0))
             antes_atual, depois_atual = extrair_fotos(reg_atual.get("foto_base64", ""))
             
             # Exibe Antes e Depois lado a lado em miniatura
@@ -266,22 +303,28 @@ with aba3:
             
             st.markdown("#### 🔧 Atualizar Registro")
             st.caption(f"Digite o PIN de **{str(colab_dono).split(' (')[0]}** ou o PIN do **Administrador (Géslei)** para confirmar:")
-            pin_confirmacao = st.text_input("PIN de autorização:", type="password", max_chars=4, key="pin_gerenciar")
+            pin_confirmacao = st.text_input("PIN de autorização:", type="password", max_chars=4, key=f"pin_ger_{reg_id}")
             
-            # Permite avançar a porcentagem de uma atividade já iniciada
-            novo_perc = st.slider("Atualizar porcentagem concluída:", min_value=0, max_value=100, value=perc_atual, step=10, key="slider_hist")
+            # Slider vinculado ao registro específico para mostrar a porcentagem atual real
+            novo_perc = st.slider(
+                "Atualizar porcentagem concluída:",
+                min_value=0,
+                max_value=100,
+                value=perc_atual,
+                step=10,
+                key=f"slider_hist_{reg_id}"
+            )
             
             c_up1, c_up2 = st.columns(2)
             with c_up1:
-                nova_antes = st.file_uploader("Trocar/Adicionar ANTES:", type=["jpg", "jpeg", "png"], key="up_antes_hist")
+                nova_antes = st.file_uploader("Trocar/Adicionar ANTES:", type=["jpg", "jpeg", "png"], key=f"up_antes_{reg_id}")
             with c_up2:
-                nova_depois = st.file_uploader("Trocar/Adicionar DEPOIS:", type=["jpg", "jpeg", "png"], key="up_depois_hist")
+                nova_depois = st.file_uploader("Trocar/Adicionar DEPOIS:", type=["jpg", "jpeg", "png"], key=f"up_depois_{reg_id}")
             
             col_b1, col_b2, col_b3, col_b4 = st.columns(4)
             
-            # Botão 1: Salvar Alterações (Fotos + Porcentagem)
             with col_b1:
-                if st.button("💾 Salvar Alterações", use_container_width=True):
+                if st.button("💾 Salvar Alterações", use_container_width=True, key=f"btn_save_{reg_id}"):
                     if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
                         st.error("❌ PIN inválido.")
                     else:
@@ -299,9 +342,8 @@ with aba3:
                             st.success("✅ Atualizado com sucesso!")
                             st.rerun()
             
-            # Botão 2: Excluir Só Foto Antes
             with col_b2:
-                if st.button("🗑️ Excluir Antes", use_container_width=True):
+                if st.button("🗑️ Excluir Antes", use_container_width=True, key=f"btn_del_a_{reg_id}"):
                     if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
                         st.error("❌ PIN inválido.")
                     elif not antes_atual:
@@ -311,9 +353,8 @@ with aba3:
                             st.success("✅ Foto Antes removida!")
                             st.rerun()
                             
-            # Botão 3: Excluir Só Foto Depois
             with col_b3:
-                if st.button("🗑️ Excluir Depois", use_container_width=True):
+                if st.button("🗑️ Excluir Depois", use_container_width=True, key=f"btn_del_d_{reg_id}"):
                     if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
                         st.error("❌ PIN inválido.")
                     elif not depois_atual:
@@ -323,9 +364,8 @@ with aba3:
                             st.success("✅ Foto Depois removida!")
                             st.rerun()
             
-            # Botão 4: Excluir Registro Inteiro
             with col_b4:
-                if st.button("❌ Apagar Registro", use_container_width=True):
+                if st.button("❌ Apagar Registro", use_container_width=True, key=f"btn_del_all_{reg_id}"):
                     if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
                         st.error("❌ PIN inválido.")
                     else:
