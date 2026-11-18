@@ -42,205 +42,211 @@ TAREFAS = {
     "Organizar rolos de cordas": 25,
     "Organizar mangueiras de jardim": 25,
     "Descarte de resíduos semanal": 25,
-    "Limpeza e organização da oficina/balcão": 20,
-    "Medir e identificar retalhos de mangueiras": 15,
-    "Avaliar itens de estoque baixo": 15
+    "Auditar estoque": 25,
+    "Lançar notas / Atualizar preços": 25,
+    "Atendimento telefônico / WhatsApp": 25,
+    "Limpeza do ambiente": 25,
+    "Organizar itens pesados": 15,
+    "Medir / etiquetar retalhos de mangueira": 15,
+    "Organizar cabos de aço": 15,
+    "Outra atividade (Descrever)": 20
 }
 
-PESOS_PERSONALIZADOS = {
-    "Tarefa Rápida / Simples (15 pts)": 15,
-    "Tarefa Média / Rotina (25 pts)": 25,
-    "Tarefa Pesada / Demorada (50 pts)": 50
-}
+# --- FUNÇÃO PARA COMPRIMIR E PREPARAR FOTO ---
+def processar_foto(foto_enviada):
+    if foto_enviada is None:
+        return ""
+    img = Image.open(foto_enviada)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    img.thumbnail((800, 800))
+    buffer = io.BytesIO()
+    img.save(buffer, format="JPEG", quality=70)
+    img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return f"data:image/jpeg;base64,{img_base64}"
 
-# --- FUNÇÃO PARA COMPRIMIR E CONVERTER FOTO ---
-def processar_foto(arquivo_foto):
-    if arquivo_foto is None:
-        return "Não"
-    try:
-        img = Image.open(arquivo_foto)
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-        img.thumbnail((600, 600))
-        buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=65)
-        img_str = base64.b64encode(buffer.getvalue()).decode("utf-8")
-        return f"data:image/jpeg;base64,{img_str}"
-    except Exception:
-        return "Anexada"
-
-# --- FUNÇÕES DE DADOS NA NUVEM ---
+# --- FUNÇÕES DE BANCO DE DADOS ---
 def carregar_dados():
     try:
-        resp = requests.get(f"{TABELA_URL}?select=*&order=id.asc", headers=HEADERS, timeout=10)
-        if resp.status_code == 200:
-            dados = resp.json()
+        res = requests.get(f"{TABELA_URL}?select=*&order=id.desc", headers=HEADERS, timeout=10)
+        if res.status_code == 200:
+            dados = res.json()
             if dados:
-                df = pd.DataFrame(dados)
-                df = df.rename(columns={
-                    "data_hora": "Data",
-                    "data_iso": "Data_ISO",
-                    "colaborador": "Colaborador",
-                    "loja": "Loja",
-                    "tarefa": "Tarefa",
-                    "progresso": "Conclusao (%)",
-                    "pontos": "Pontos",
-                    "obs": "Obs",
-                    "foto": "Foto"
-                })
-                return df
+                return pd.DataFrame(dados)
     except Exception as e:
-        st.error(f"Erro ao conectar com o banco: {e}")
-    return pd.DataFrame(columns=[
-        "id", "Data", "Data_ISO", "Colaborador", "Loja", "Tarefa", 
-        "Conclusao (%)", "Pontos", "Obs", "Foto"
-    ])
+        st.error(f"Erro ao conectar com o banco de dados: {e}")
+    return pd.DataFrame(columns=["id", "data_hora", "colaborador", "unidade", "tarefa", "percentual", "pontos", "observacao", "foto_base64"])
 
-def salvar_dados(registro):
+def salvar_registro(registro):
     try:
-        resp = requests.post(TABELA_URL, json=registro, headers=HEADERS, timeout=15)
-        return resp.status_code in [200, 201]
+        res = requests.post(TABELA_URL, json=registro, headers=HEADERS, timeout=10)
+        return res.status_code in [200, 201]
     except Exception as e:
-        st.error(f"Erro ao salvar na nuvem: {e}")
+        st.error(f"Erro ao salvar registro: {e}")
         return False
 
-# --- INTERFACE DO APP ---
+def atualizar_foto_registro(registro_id, nova_foto_base64):
+    try:
+        res = requests.patch(f"{TABELA_URL}?id=eq.{registro_id}", json={"foto_base64": nova_foto_base64}, headers=HEADERS, timeout=10)
+        return res.status_code in [200, 204]
+    except Exception as e:
+        st.error(f"Erro ao atualizar foto: {e}")
+        return False
+
+def excluir_registro_completo(registro_id):
+    try:
+        res = requests.delete(f"{TABELA_URL}?id=eq.{registro_id}", headers=HEADERS, timeout=10)
+        return res.status_code in [200, 204]
+    except Exception as e:
+        st.error(f"Erro ao excluir registro: {e}")
+        return False
+
+# --- TÍTULO E ABAS ---
 st.title("📋 Organização & Tempo Ocioso")
 st.caption("Controle de atividades • Loja 1 & Loja 2 (Estoque)")
 
 aba1, aba2, aba3 = st.tabs(["✅ Registrar", "🏆 Índices", "📜 Histórico"])
 
-# ABA 1: REGISTRO DE TAREFA
+# ================= ABA 1: REGISTRO =================
 with aba1:
     st.subheader("Lançar Atividade")
-    
-    colab = st.selectbox("Quem é você?", list(EQUIPE.keys()))
+    colaborador = st.selectbox("Quem é você?", list(EQUIPE.keys()))
     pin_digitado = st.text_input("Seu PIN de 4 dígitos:", type="password", max_chars=4, placeholder="Ex: 1001")
     
-    loja = st.radio("Unidade:", ["Loja 1 (Balcão/Oficina)", "Loja 2 (Estoque)"], horizontal=True)
+    unidade = st.radio("Unidade:", ["Loja 1 (Balcão/Oficina)", "Loja 2 (Estoque)"], horizontal=True)
+    tarefa_escolhida = st.selectbox("Tarefa realizada:", list(TAREFAS.keys()))
     
-    opcoes_tarefas = list(TAREFAS.keys()) + ["➕ Outra tarefa (digitar nova)"]
-    tarefa_selecionada = st.selectbox("Tarefa realizada:", opcoes_tarefas)
-    
-    if tarefa_selecionada == "➕ Outra tarefa (digitar nova)":
-        tarefa_final = st.text_input("Descreva a nova tarefa:", placeholder="Ex: Conferir chegada de mercadoria / Organizar conexões")
-        nivel_peso = st.selectbox("Grau de esforço / pontuação:", list(PESOS_PERSONALIZADOS.keys()))
-        peso_base = PESOS_PERSONALIZADOS[nivel_peso]
-    else:
-        tarefa_final = tarefa_selecionada
-        peso_base = TAREFAS[tarefa_selecionada]
-    
-    progresso = st.slider("Porcentagem concluída:", min_value=10, max_value=100, value=100, step=10)
-    obs = st.text_input("Observação (opcional):", placeholder="Ex: Prateleira B concluída / Retalhos 3/4 medidos")
-    
+    tarefa_final = tarefa_escolhida
+    if tarefa_escolhida == "Outra atividade (Descrever)":
+        tarefa_final = st.text_input("Descreva a atividade realizada:", placeholder="Ex: Organização da vitrine de conexões")
+        
+    percentual = st.slider("Porcentagem concluída:", min_value=10, max_value=100, value=100, step=10)
+    observacao = st.text_input("Observação (opcional):", placeholder="Ex: Prateleira B concluída / Retalhos 3/4 medidos")
     foto = st.file_uploader("Foto da atividade (opcional - abre câmera no celular):", type=["jpg", "jpeg", "png"])
     
-    # Pré-visualização imediata da foto selecionada
     if foto is not None:
         st.image(foto, caption="Prévia da foto anexada", width=250)
-    
-    pontos = round((progresso / 100) * peso_base, 1)
-    st.info(f"Pontuação desta entrega: **{pontos} pts**")
+        
+    peso_base = TAREFAS[tarefa_escolhida]
+    pontos_calculados = round((peso_base * percentual) / 100, 1)
+    st.info(f"Pontuação desta entrega: **{pontos_calculados} pts**")
     
     if st.button("Confirmar Lançamento", type="primary", use_container_width=True):
-        if pin_digitado != EQUIPE[colab]:
-            st.error("❌ PIN incorreto! Digite o seu código de 4 dígitos para confirmar.")
-        elif not tarefa_final or not tarefa_final.strip():
-            st.error("❌ Por favor, digite o nome da nova tarefa antes de confirmar.")
+        if pin_digitado != EQUIPE[colaborador]:
+            st.error("❌ PIN incorreto! Verifique seu código de 4 dígitos.")
+        elif not tarefa_final.strip():
+            st.warning("⚠️ Por favor, descreva a atividade realizada.")
         else:
-            agora = datetime.now()
-            foto_codificada = processar_foto(foto)
-            novo = {
-                "data_hora": agora.strftime("%d/%m/%Y %H:%M"),
-                "data_iso": agora.strftime("%Y-%m-%d"),
-                "colaborador": colab,
-                "loja": loja,
-                "tarefa": tarefa_final.strip(),
-                "progresso": float(progresso),
-                "pontos": float(pontos),
-                "obs": obs,
-                "foto": foto_codificada
-            }
-            if salvar_dados(novo):
-                st.success(f"✅ Salvo na nuvem para {colab.split()[0]}! (+{pontos} pts)")
-                st.rerun()
-            else:
-                st.error("⚠️ Não foi possível salvar. Verifique a conexão com a internet.")
+            with st.spinner("Salvando na nuvem..."):
+                agora_br = (datetime.utcnow() - timedelta(hours=3)).strftime("%d/%m/%Y %H:%M")
+                foto_b64 = processar_foto(foto)
+                novo_reg = {
+                    "data_hora": agora_br,
+                    "colaborador": colaborador,
+                    "unidade": unidade,
+                    "tarefa": tarefa_final.strip(),
+                    "percentual": percentual,
+                    "pontos": pontos_calculados,
+                    "observacao": observacao.strip(),
+                    "foto_base64": foto_b64
+                }
+                if salvar_registro(novo_reg):
+                    st.success(f"✅ Lançado com sucesso! +{pontos_calculados} pts para {colaborador.split(' (')[0]}.")
+                    st.balloons()
+                else:
+                    st.error("Falha ao salvar. Tente novamente.")
 
-# ABA 2: PAINEL DE ÍNDICES E RANKING
+# ================= ABA 2: ÍNDICES E RANKING =================
 with aba2:
-    st.subheader("Índices de Desempenho")
+    st.subheader("Ranking & Desempenho")
     df = carregar_dados()
-    
     if df.empty:
-        st.info("Ainda não há registros na nuvem. Faça um lançamento na aba 'Registrar'!")
+        st.info("Ainda não há atividades registradas.")
     else:
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            periodo = st.selectbox("Período:", ["Todo o Período", "Esta Semana (7 dias)", "Este Mês (30 dias)"])
-        with col_f2:
-            filtro_loja = st.selectbox("Unidade:", ["Todas as Lojas", "Loja 1 (Balcão/Oficina)", "Loja 2 (Estoque)"])
+        col1, col2 = st.columns(2)
+        col1.metric("Total de Tarefas", len(df))
+        col2.metric("Pontos Acumulados", f"{df['pontos'].sum():.1f} pts")
         
-        df_filtrado = df.copy()
-        hoje = datetime.now().date()
+        ranking = df.groupby("colaborador", as_index=False)["pontos"].sum().sort_values(by="pontos", ascending=False)
+        ranking["Nome"] = ranking["colaborador"].apply(lambda x: x.split(" (")[0])
         
-        if "Data_ISO" in df_filtrado.columns:
-            df_filtrado["Data_dt"] = pd.to_datetime(df_filtrado["Data_ISO"], errors="coerce").dt.date
-            if periodo == "Esta Semana (7 dias)":
-                df_filtrado = df_filtrado[df_filtrado["Data_dt"] >= (hoje - timedelta(days=7))]
-            elif periodo == "Este Mês (30 dias)":
-                df_filtrado = df_filtrado[df_filtrado["Data_dt"] >= (hoje - timedelta(days=30))]
-                
-        if filtro_loja != "Todas as Lojas":
-            df_filtrado = df_filtrado[df_filtrado["Loja"] == filtro_loja]
-            
-        if df_filtrado.empty:
-            st.warning("Nenhum registro encontrado para este filtro.")
-        else:
-            resumo = df_filtrado.groupby("Colaborador").agg(
-                Pontos=("Pontos", "sum"),
-                Tarefas=("Tarefa", "count"),
-                Media_Conclusao=("Conclusao (%)", "mean")
-            ).reset_index().sort_values(by="Pontos", ascending=False)
-            
-            total_pts = resumo["Pontos"].sum()
-            resumo["Índice (%)"] = round((resumo["Pontos"] / total_pts) * 100, 1)
-            resumo["Media_Conclusao"] = round(resumo["Media_Conclusao"], 0).astype(int)
-            
-            fig = px.bar(
-                resumo, x="Pontos", y="Colaborador", orientation="h",
-                text="Índice (%)", color="Pontos", color_continuous_scale="Blues",
-                title=f"Participação ({periodo})"
-            )
-            fig.update_traces(texttemplate='%{text}%', textposition='outside')
-            fig.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False, height=420)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.dataframe(
-                resumo[["Colaborador", "Índice (%)", "Pontos", "Tarefas", "Media_Conclusao"]],
-                use_container_width=True, hide_index=True
-            )
+        fig = px.bar(ranking, x="pontos", y="Nome", orientation="h", text="pontos", color="pontos", color_continuous_scale="Reds")
+        fig.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, height=350, margin=dict(l=0, r=0, t=10, b=0))
+        st.plotly_chart(fig, use_container_width=True)
 
-# ABA 3: HISTÓRICO RECENTE E VISUALIZADOR DE FOTOS
+# ================= ABA 3: HISTÓRICO E GESTÃO DE FOTOS =================
 with aba3:
     st.subheader("Histórico de Atividades")
     df = carregar_dados()
-    if not df.empty:
-        df_exibir = df.iloc[::-1].copy()
-        df_exibir["Status Foto"] = df_exibir["Foto"].apply(
-            lambda x: "📷 Ver foto abaixo" if isinstance(x, str) and x.startswith("data:image") else ("Anexada" if x == "Anexada" else "Sem foto")
-        )
-        colunas_exibir = [c for c in ["Data", "Colaborador", "Loja", "Tarefa", "Conclusao (%)", "Pontos", "Obs", "Status Foto"] if c in df_exibir.columns]
-        st.dataframe(df_exibir[colunas_exibir], use_container_width=True, hide_index=True)
-
-        # Visualizador de fotos salvas
-        registros_com_foto = df_exibir[df_exibir["Foto"].astype(str).str.startswith("data:image")]
-        if not registros_com_foto.empty:
-            st.markdown("---")
-            st.subheader("📷 Visualizar Foto Anexada")
-            opcoes_foto = {
-                f"{row['Data']} - {row['Colaborador'].split()[0]} ({row['Tarefa']})": row["Foto"]
-                for _, row in registros_com_foto.iterrows()
-            }
-            selecao_foto = st.selectbox("Selecione o registro para abrir a imagem:", list(opcoes_foto.keys()))
-            st.image(opcoes_foto[selecao_foto], use_container_width=True)
+    if df.empty:
+        st.info("Nenhum registro encontrado.")
+    else:
+        filtro_colab = st.selectbox("Filtrar por colaborador:", ["Todos"] + list(EQUIPE.keys()))
+        df_exibir = df if filtro_colab == "Todos" else df[df["colaborador"] == filtro_colab]
+        
+        colunas_tabela = ["data_hora", "colaborador", "unidade", "tarefa", "percentual", "pontos", "observacao"]
+        st.dataframe(df_exibir[colunas_tabela], use_container_width=True, hide_index=True)
+        
+        st.divider()
+        st.subheader("📸 Gerenciar Foto / Registro")
+        
+        opcoes_reg = {
+            f"#{row['id']} | {row['data_hora']} - {row['colaborador'].split(' (')[0]} ({row['tarefa']})": row
+            for _, row in df_exibir.iterrows()
+        }
+        
+        if opcoes_reg:
+            selecionado_label = st.selectbox("Selecione o lançamento:", list(opcoes_reg.keys()))
+            reg_atual = opcoes_reg[selecionado_label]
+            reg_id = reg_atual["id"]
+            colab_dono = reg_atual["colaborador"]
+            foto_existente = reg_atual.get("foto_base64", "")
+            
+            # Exibe a foto atual se existir
+            if isinstance(foto_existente, str) and foto_existente.startswith("data:image"):
+                st.image(foto_existente, caption="Foto anexada atualmente", use_container_width=True)
+            else:
+                st.info("Este lançamento ainda não possui foto anexada.")
+            
+            st.markdown("#### 🔧 Alterar Foto ou Excluir")
+            st.caption(f"Digite o PIN de **{colab_dono.split(' (')[0]}** ou o PIN do **Administrador (Géslei)** para confirmar:")
+            pin_confirmacao = st.text_input("PIN de autorização:", type="password", max_chars=4, key="pin_gerenciar")
+            
+            nova_foto_upload = st.file_uploader("Enviar nova foto (substitui a atual ou adiciona foto depois de organizado):", type=["jpg", "jpeg", "png"], key="nova_foto_hist")
+            
+            col_b1, col_b2, col_b3 = st.columns(3)
+            
+            # Botão 1: Salvar / Substituir Foto
+            with col_b1:
+                if st.button("💾 Salvar Nova Foto", use_container_width=True):
+                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
+                        st.error("❌ PIN inválido para alterar este registro.")
+                    elif nova_foto_upload is None:
+                        st.warning("⚠️ Selecione ou tire uma foto primeiro acima.")
+                    else:
+                        nova_b64 = processar_foto(nova_foto_upload)
+                        if atualizar_foto_registro(reg_id, nova_b64):
+                            st.success("✅ Foto atualizada com sucesso!")
+                            st.rerun()
+            
+            # Botão 2: Excluir Apenas a Foto
+            with col_b2:
+                if st.button("🖼️ Excluir Só a Foto", use_container_width=True):
+                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
+                        st.error("❌ PIN inválido para excluir a foto.")
+                    elif not (isinstance(foto_existente, str) and foto_existente.startswith("data:image")):
+                        st.warning("⚠️ Este registro não tem foto para excluir.")
+                    else:
+                        if atualizar_foto_registro(reg_id, ""):
+                            st.success("✅ Foto removida! A tarefa e os pontos foram mantidos.")
+                            st.rerun()
+            
+            # Botão 3: Excluir Registro Inteiro
+            with col_b3:
+                if st.button("🗑️ Excluir Registro", use_container_width=True):
+                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
+                        st.error("❌ PIN inválido para excluir este registro.")
+                    else:
+                        if excluir_registro_completo(reg_id):
+                            st.success("✅ Registro excluído completamente!")
+                            st.rerun()
