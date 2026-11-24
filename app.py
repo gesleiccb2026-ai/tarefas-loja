@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -608,4 +607,96 @@ with aba_historico:
             for idx, row in df_exibir.iterrows()
         }
         
-        if opcoes_reg
+        if opcoes_reg:
+            selecionado_label = st.selectbox("Selecione o lançamento:", list(opcoes_reg.keys()))
+            reg_atual = opcoes_reg[selecionado_label]
+            reg_id = reg_atual.get("id")
+            colab_dono = reg_atual.get("colaborador", "")
+            tarefa_reg = reg_atual.get("tarefa", "")
+            perc_atual = int(reg_atual.get("progresso_%", 0))
+            antes_atual, depois_atual = extrair_fotos(reg_atual.get("foto_base64", ""))
+            
+            c_img1, c_img2 = st.columns(2)
+            with c_img1:
+                st.markdown("**📸 Antes**")
+                if antes_atual.startswith("data:image"):
+                    st.image(antes_atual, width=220)
+                else:
+                    st.caption("Sem foto de Antes.")
+            with c_img2:
+                st.markdown("**✨ Depois**")
+                if depois_atual.startswith("data:image"):
+                    st.image(depois_atual, width=220)
+                else:
+                    st.caption("Sem foto de Depois.")
+            
+            st.markdown("#### 🔧 Atualizar Registro")
+            st.caption(f"Digite o PIN de **{str(colab_dono).split(' (')[0]}** ou o PIN do **Administrador (Géslei)** para confirmar:")
+            pin_confirmacao = st.text_input("PIN de autorização:", type="password", max_chars=4, key=f"pin_ger_{reg_id}")
+            
+            novo_perc = st.slider(
+                "Atualizar porcentagem concluída:",
+                min_value=0,
+                max_value=100,
+                value=perc_atual,
+                step=10,
+                key=f"slider_hist_{reg_id}"
+            )
+            
+            c_up1, c_up2 = st.columns(2)
+            with c_up1:
+                nova_antes = st.file_uploader("Trocar/Adicionar ANTES:", type=["jpg", "jpeg", "png"], key=f"up_antes_{reg_id}")
+            with c_up2:
+                nova_depois = st.file_uploader("Trocar/Adicionar DEPOIS:", type=["jpg", "jpeg", "png"], key=f"up_depois_{reg_id}")
+            
+            col_b1, col_b2, col_b3, col_b4 = st.columns(4)
+            
+            with col_b1:
+                if st.button("💾 Salvar Alterações", use_container_width=True, key=f"btn_save_{reg_id}"):
+                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
+                        st.error("❌ PIN inválido.")
+                    else:
+                        antes_final = processar_foto_miniatura(nova_antes) if nova_antes else antes_atual
+                        depois_final = processar_foto_miniatura(nova_depois) if nova_depois else depois_atual
+                        peso = TAREFAS.get(tarefa_reg, 20)
+                        novos_pts = round((peso * novo_perc) / 100, 1)
+                        
+                        payload = {
+                            "foto_base64": empacotar_fotos(antes_final, depois_final),
+                            "percentual": novo_perc,
+                            "pontos": novos_pts
+                        }
+                        if atualizar_registro(reg_id, payload):
+                            st.success("✅ Atualizado com sucesso!")
+                            st.rerun()
+            
+            with col_b2:
+                if st.button("🗑️ Excluir Antes", use_container_width=True, key=f"btn_del_a_{reg_id}"):
+                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
+                        st.error("❌ PIN inválido.")
+                    elif not antes_atual:
+                        st.warning("⚠️ Não há foto de Antes.")
+                    else:
+                        if atualizar_registro(reg_id, {"foto_base64": empacotar_fotos("", depois_atual)}):
+                            st.success("✅ Foto Antes removida!")
+                            st.rerun()
+                            
+            with col_b3:
+                if st.button("🗑️ Excluir Depois", use_container_width=True, key=f"btn_del_d_{reg_id}"):
+                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
+                        st.error("❌ PIN inválido.")
+                    elif not depois_atual:
+                        st.warning("⚠️ Não há foto de Depois.")
+                    else:
+                        if atualizar_registro(reg_id, {"foto_base64": empacotar_fotos(antes_atual, "")}):
+                            st.success("✅ Foto Depois removida!")
+                            st.rerun()
+            
+            with col_b4:
+                if st.button("❌ Apagar Registro", use_container_width=True, key=f"btn_del_all_{reg_id}"):
+                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
+                        st.error("❌ PIN inválido.")
+                    else:
+                        if excluir_registro_completo(reg_id):
+                            st.success("✅ Registro excluído!")
+                            st.rerun()
