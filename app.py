@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -9,8 +10,78 @@ import io
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
-# Configuração da tela (layout amplo no PC para ver as 3 colunas do Trello e responsivo no celular)
-st.set_page_config(page_title="Tarefas SAN • Quadro Trello", page_icon="🗂️", layout="wide")
+# Configuração da tela
+st.set_page_config(page_title="GTT • Gestão de Tarefas & Tempo", page_icon="⏱️", layout="wide")
+
+# --- ESTILO VISUAL INSPIRADO NO TRELLO & LOGO GTT ---
+st.markdown("""
+<style>
+    .gtt-header {
+        background: linear-gradient(135deg, #0052CC 0%, #026AA7 100%);
+        padding: 16px 22px;
+        border-radius: 12px;
+        color: white;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 18px;
+        box-shadow: 0 4px 12px rgba(0, 82, 204, 0.2);
+    }
+    .gtt-title {
+        font-size: 1.55rem;
+        font-weight: 800;
+        margin: 0;
+        letter-spacing: -0.3px;
+        color: #FFFFFF;
+    }
+    .gtt-subtitle {
+        font-size: 0.9rem;
+        margin: 2px 0 0 0;
+        color: #DCE9F9;
+    }
+    .kanban-col-header {
+        background-color: #EBECF0;
+        color: #172B4D;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 0.98rem;
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-left: 5px solid #026AA7;
+    }
+    .kanban-badge {
+        background-color: #DFE1E6;
+        color: #172B4D;
+        padding: 2px 9px;
+        border-radius: 12px;
+        font-size: 0.82rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+LOGO_GTT_SVG = """
+<svg width="56" height="56" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="14" fill="#FFFFFF"/>
+  <rect x="4" y="4" width="56" height="56" rx="11" fill="#0052CC"/>
+  <circle cx="46" cy="18" r="10" fill="#36B37E"/>
+  <path d="M46 13V18.5L49.5 20.5" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M15 24H31M15 32H29" stroke="#85B8FF" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="14" y="49" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="18" letter-spacing="1">GTT</text>
+</svg>
+"""
+
+st.markdown(f"""
+<div class="gtt-header">
+    <div>{LOGO_GTT_SVG}</div>
+    <div>
+        <div class="gtt-title">Gestão de Tarefas & Tempo (GTT)</div>
+        <div class="gtt-subtitle">Controle de Serviços & Organização • Loja 1 (Balcão/Oficina) & Loja 2 (Estoque)</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # --- CONEXÃO COM O BANCO DE DADOS NA NUVEM (SUPABASE) ---
 SUPABASE_URL = "https://wccmtfatnvrpwcssvlwv.supabase.co"
@@ -73,9 +144,9 @@ def processar_foto_miniatura(foto_enviada):
         img = Image.open(foto_enviada)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
-        img.thumbnail((450, 450))
+        img.thumbnail((500, 500))
         buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=60)
+        img.save(buffer, format="JPEG", quality=62)
         img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
         return f"data:image/jpeg;base64,{img_base64}"
     except Exception as e:
@@ -166,21 +237,17 @@ def excluir_registro_completo(registro_id):
         st.error(f"Erro ao excluir registro: {e}")
         return False
 
-# --- TÍTULO E ABAS ---
-st.title("🗂️ Controle de Serviços & Tempo Ocioso")
-st.caption("Quadro estilo Trello • Loja 1 (Balcão/Oficina) & Loja 2 (Estoque)")
-
+# --- ABAS DO SISTEMA GTT ---
 aba_trello, aba_direto, aba_indices, aba_historico = st.tabs([
-    "🗂️ Quadro Trello",
+    "🗂️ Quadro GTT (Trello)",
     "✅ Lançar Direto",
     "🏆 Índices",
     "📜 Histórico"
 ])
 
-# ================= ABA 1: QUADRO KANBAN ESTILO TRELLO =================
+# ================= ABA 1: QUADRO KANBAN ESTILO TRELLO (4 COLUNAS) =================
 with aba_trello:
-    # Barra superior de criação rápida de cartão + filtros
-    with st.expander("➕ Criar Novo Cartão de Serviço (A Fazer)", expanded=False):
+    with st.expander("➕ Adicionar Cartão de Serviço (A Fazer)", expanded=False):
         c_new1, c_new2, c_new3 = st.columns(3)
         with c_new1:
             criador_card = st.selectbox("Quem está criando?", list(EQUIPE.keys()), key="trello_criador")
@@ -192,18 +259,18 @@ with aba_trello:
             tarefa_card = st.selectbox("Serviço / Tarefa:", list(TAREFAS.keys()), key="trello_tarefa")
             tarefa_card_final = tarefa_card
             if tarefa_card == "Outra atividade (Descrever)":
-                tarefa_card_final = st.text_input("Descreva o serviço:", placeholder="Ex: Organizar gôndola de conexões", key="trello_tarefa_desc")
+                tarefa_card_final = st.text_input("Descreva o serviço:", placeholder="Ex: Melhorar a aparência do balcão", key="trello_tarefa_desc")
         
-        obs_card = st.text_input("Detalhes / Instruções do cartão (opcional):", placeholder="Ex: Prioridade para hoje à tarde", key="trello_obs")
-        foto_inicial_card = st.file_uploader("📸 Foto ANTES opcional (já anexar na abertura do cartão):", type=["jpg", "jpeg", "png"], key="trello_foto_init")
+        obs_card = st.text_input("Instruções / Detalhes do cartão (opcional):", placeholder="Ex: Deixar apenas o necessário", key="trello_obs")
+        foto_inicial_card = st.file_uploader("📸 Foto de Capa / ANTES (opcional):", type=["jpg", "jpeg", "png"], key="trello_foto_init")
         
-        if st.button("📌 Adicionar Cartão no Quadro", type="primary", use_container_width=True):
+        if st.button("📌 Criar Cartão em 'A Fazer'", type="primary", use_container_width=True):
             if pin_criador != EQUIPE[criador_card]:
                 st.error("❌ PIN incorreto! Digite o PIN de quem está criando o cartão.")
             elif not tarefa_card_final.strip():
                 st.warning("⚠️ Descreva o serviço antes de adicionar o cartão.")
             else:
-                with st.spinner("Criando cartão no quadro..."):
+                with st.spinner("Criando cartão no quadro GTT..."):
                     agora_br = obter_hora_brasilia()
                     antes_b64 = processar_foto_miniatura(foto_inicial_card)
                     pacote_fotos = empacotar_fotos(antes_b64, "")
@@ -221,7 +288,7 @@ with aba_trello:
                         "foto_base64": pacote_fotos
                     }
                     if salvar_registro(novo_cartao):
-                        st.success("✅ Cartão adicionado na coluna '📋 A Fazer'!")
+                        st.success("✅ Cartão adicionado em '📋 A fazer'!")
                         st.rerun()
 
     # Filtros do Quadro
@@ -233,12 +300,12 @@ with aba_trello:
     with col_f_tr3:
         st.write("")
         st.write("")
-        if st.button("🔄 Atualizar Quadro", use_container_width=True):
+        if st.button("🔄 Atualizar", use_container_width=True):
             st.rerun()
 
     df_trello = carregar_dados()
     if df_trello.empty:
-        st.info("Nenhum cartão encontrado no quadro. Clique em '➕ Criar Novo Cartão de Serviço' acima para começar!")
+        st.info("Nenhum cartão encontrado. Clique em '➕ Adicionar Cartão de Serviço' acima para começar!")
     else:
         df_trello["progresso_%"] = df_trello.apply(calcular_percentual_registro, axis=1)
         
@@ -247,13 +314,15 @@ with aba_trello:
         if filtro_loja_trello != "Todas":
             df_trello = df_trello[df_trello["observacao"].astype(str).str.contains(filtro_loja_trello, na=False)]
 
+        # 4 Listas exatas inspiradas no Trello:
+        # 0% = A fazer | 10% a 80% = Em andamento | 90% = Aguardando aprovação | 100% = Concluídos
         df_afazer = df_trello[df_trello["progresso_%"] == 0]
-        df_andamento = df_trello[(df_trello["progresso_%"] > 0) & (df_trello["progresso_%"] < 100)]
-        df_concluido = df_trello[df_trello["progresso_%"] >= 100].head(15)  # Mostra os 15 últimos concluídos para manter o quadro leve
+        df_andamento = df_trello[(df_trello["progresso_%"] > 0) & (df_trello["progresso_%"] < 90)]
+        df_aprovacao = df_trello[df_trello["progresso_%"] == 90]
+        df_concluido = df_trello[df_trello["progresso_%"] >= 100].head(12)
 
-        col_k1, col_k2, col_k3 = st.columns(3)
+        col_k1, col_k2, col_k3, col_k4 = st.columns(4)
 
-        # Função auxiliar para desenhar cada cartão estilo Trello
         def renderizar_cartao(row, estagio):
             reg_id = row.get("id")
             colab_atual = str(row.get("colaborador", OPCAO_LIVRE))
@@ -266,35 +335,39 @@ with aba_trello:
             pts_atuais = float(row.get("pontos", 0) or 0)
             antes_b64, depois_b64 = extrair_fotos(row.get("foto_base64", ""))
 
-            # Etiqueta visual de loja
             badge_loja = "🔵 Loja 1" if "[Loja 1]" in obs_txt else ("🟠 Loja 2" if "[Loja 2]" in obs_txt else "⚪ Geral")
             obs_limpa = obs_txt.replace("[Loja 1]", "").replace("[Loja 2]", "").strip()
 
             with st.container(border=True):
+                # Foto de capa no topo do cartão (estilo Trello)
+                if depois_b64.startswith("data:image"):
+                    st.image(depois_b64, use_container_width=True)
+                elif antes_b64.startswith("data:image"):
+                    st.image(antes_b64, use_container_width=True)
+
                 st.markdown(f"**{tarefa_txt}**")
+                if obs_limpa:
+                    st.caption(f"{obs_limpa}")
+                
                 st.caption(f"{badge_loja} • 🏆 {peso_tarefa} pts • 🕒 {data_txt}")
                 
                 if colab_atual == OPCAO_LIVRE:
-                    st.warning(f"👤 {OPCAO_LIVRE}")
+                    st.warning(f"👤 Livre para assumir")
                 else:
-                    st.markdown(f"👤 **{nome_curto}** • Progresso: **{perc}%** ({pts_atuais} pts)")
-                
-                if obs_limpa:
-                    st.caption(f"📝 {obs_limpa}")
+                    st.markdown(f"👤 **{nome_curto}** • **{perc}%** ({pts_atuais} pts)")
 
-                # Miniaturas Antes / Depois dentro do cartão
-                if antes_b64.startswith("data:image") or depois_b64.startswith("data:image"):
-                    c_m1, c_m2 = st.columns(2)
-                    with c_m1:
-                        if antes_b64.startswith("data:image"):
-                            st.image(antes_b64, caption="Antes", width=110)
-                    with c_m2:
-                        if depois_b64.startswith("data:image"):
-                            st.image(depois_b64, caption="Depois", width=110)
+                # Miniaturas Antes vs Depois quando ambas existem
+                if antes_b64.startswith("data:image") and depois_b64.startswith("data:image"):
+                    cm1, cm2 = st.columns(2)
+                    with cm1:
+                        st.image(antes_b64, caption="Antes", use_container_width=True)
+                    with cm2:
+                        st.image(depois_b64, caption="Depois", use_container_width=True)
 
-                # Ações rápidas do cartão conforme a coluna
-                if estagio in ["afazer", "andamento"]:
-                    with st.expander("⚡ Mover / Atualizar Cartão"):
+                # Painel de movimentação rápida do cartão
+                if estagio in ["afazer", "andamento", "aprovacao"]:
+                    label_acao = "👀 Aprovar / Concluir" if estagio == "aprovacao" else "⚡ Mover / Atualizar"
+                    with st.expander(label_acao):
                         quem_move = st.selectbox(
                             "Colaborador:",
                             list(EQUIPE.keys()),
@@ -303,87 +376,124 @@ with aba_trello:
                         )
                         pin_move = st.text_input("PIN (4 dígitos):", type="password", max_chars=4, key=f"pin_move_{reg_id}")
                         
-                        valor_sugerido = 20 if estagio == "afazer" else min(100, perc + 20)
-                        novo_progresso = st.slider(
-                            "Novo progresso (%):",
-                            min_value=10,
-                            max_value=100,
-                            value=valor_sugerido,
-                            step=10,
-                            key=f"prog_move_{reg_id}"
-                        )
-                        
-                        foto_up_card = st.file_uploader(
-                            "📸 Anexar Foto (Antes se iniciando / Depois se concluindo):",
-                            type=["jpg", "jpeg", "png"],
-                            key=f"foto_move_{reg_id}"
-                        )
-                        
-                        col_btn_m1, col_btn_m2 = st.columns(2)
-                        with col_btn_m1:
-                            if st.button("💾 Salvar & Mover", type="primary", use_container_width=True, key=f"btn_move_{reg_id}"):
-                                if pin_move not in [EQUIPE[quem_move], EQUIPE["Géslei (Agente Administrativo)"]]:
-                                    st.error("❌ PIN incorreto.")
-                                else:
-                                    novos_pontos = round((peso_tarefa * novo_progresso) / 100, 1)
-                                    antes_novo = antes_b64
-                                    depois_novo = depois_b64
-                                    
-                                    if foto_up_card is not None:
-                                        img_proc = processar_foto_miniatura(foto_up_card)
-                                        if novo_progresso < 100 and not antes_b64:
-                                            antes_novo = img_proc
-                                        else:
-                                            depois_novo = img_proc
-                                            
-                                    payload = {
-                                        "colaborador": quem_move,
-                                        "percentual": novo_progresso,
-                                        "pontos": novos_pontos,
-                                        "data_hora": obter_hora_brasilia(),
-                                        "foto_base64": empacotar_fotos(antes_novo, depois_novo)
-                                    }
-                                    if atualizar_registro(reg_id, payload):
-                                        st.success("✅ Cartão atualizado!")
-                                        st.rerun()
-                        with col_btn_m2:
-                            if st.button("✅ Concluir 100%", use_container_width=True, key=f"btn_done_{reg_id}"):
-                                if pin_move not in [EQUIPE[quem_move], EQUIPE["Géslei (Agente Administrativo)"]]:
-                                    st.error("❌ PIN incorreto.")
-                                else:
-                                    depois_novo = processar_foto_miniatura(foto_up_card) if foto_up_card else depois_b64
-                                    payload = {
-                                        "colaborador": quem_move,
-                                        "percentual": 100,
-                                        "pontos": float(peso_tarefa),
-                                        "data_hora": obter_hora_brasilia(),
-                                        "foto_base64": empacotar_fotos(antes_b64, depois_novo)
-                                    }
-                                    if atualizar_registro(reg_id, payload):
-                                        st.success("🎉 Concluído!")
-                                        st.rerun()
+                        if estagio == "aprovacao":
+                            st.info("Validação do gestor (PIN 1001) para concluir 100% ou devolver.")
+                            foto_up_card = st.file_uploader("📸 Foto adicional (opcional):", type=["jpg", "jpeg", "png"], key=f"foto_aprov_{reg_id}")
+                            ca1, ca2 = st.columns(2)
+                            with ca1:
+                                if st.button("✅ Aprovar (100%)", type="primary", use_container_width=True, key=f"btn_ok_{reg_id}"):
+                                    if pin_move != EQUIPE["Géslei (Agente Administrativo)"]:
+                                        st.error("❌ Apenas o PIN do Gestor (1001) aprova.")
+                                    else:
+                                        depois_novo = processar_foto_miniatura(foto_up_card) if foto_up_card else depois_b64
+                                        payload = {
+                                            "percentual": 100,
+                                            "pontos": float(peso_tarefa),
+                                            "data_hora": obter_hora_brasilia(),
+                                            "foto_base64": empacotar_fotos(antes_b64, depois_novo)
+                                        }
+                                        if atualizar_registro(reg_id, payload):
+                                            st.success("🎉 Aprovado e concluído!")
+                                            st.rerun()
+                            with ca2:
+                                if st.button("↩️ Devolver (50%)", use_container_width=True, key=f"btn_dev_{reg_id}"):
+                                    if pin_move != EQUIPE["Géslei (Agente Administrativo)"]:
+                                        st.error("❌ Apenas o PIN do Gestor (1001) devolve.")
+                                    else:
+                                        payload = {
+                                            "percentual": 50,
+                                            "pontos": round(peso_tarefa * 0.5, 1),
+                                            "data_hora": obter_hora_brasilia()
+                                        }
+                                        if atualizar_registro(reg_id, payload):
+                                            st.warning("Devolvido para Em andamento.")
+                                            st.rerun()
+                        else:
+                            valor_sugerido = 20 if estagio == "afazer" else min(90, perc + 30)
+                            novo_progresso = st.slider(
+                                "Progresso (90% = Aguardando aprovação):",
+                                min_value=10,
+                                max_value=100,
+                                value=valor_sugerido,
+                                step=10,
+                                key=f"prog_move_{reg_id}"
+                            )
+                            foto_up_card = st.file_uploader(
+                                "📸 Foto (Antes ou Depois):",
+                                type=["jpg", "jpeg", "png"],
+                                key=f"foto_move_{reg_id}"
+                            )
+                            cb1, cb2 = st.columns(2)
+                            with cb1:
+                                if st.button("💾 Salvar & Mover", type="primary", use_container_width=True, key=f"btn_move_{reg_id}"):
+                                    if pin_move not in [EQUIPE[quem_move], EQUIPE["Géslei (Agente Administrativo)"]]:
+                                        st.error("❌ PIN incorreto.")
+                                    else:
+                                        novos_pontos = round((peso_tarefa * novo_progresso) / 100, 1)
+                                        antes_novo = antes_b64
+                                        depois_novo = depois_b64
+                                        if foto_up_card is not None:
+                                            img_proc = processar_foto_miniatura(foto_up_card)
+                                            if novo_progresso < 90 and not antes_b64:
+                                                antes_novo = img_proc
+                                            else:
+                                                depois_novo = img_proc
+                                        payload = {
+                                            "colaborador": quem_move,
+                                            "percentual": novo_progresso,
+                                            "pontos": novos_pontos,
+                                            "data_hora": obter_hora_brasilia(),
+                                            "foto_base64": empacotar_fotos(antes_novo, depois_novo)
+                                        }
+                                        if atualizar_registro(reg_id, payload):
+                                            st.success("✅ Movido!")
+                                            st.rerun()
+                            with cb2:
+                                if st.button("👀 Enviar p/ Aprovação", use_container_width=True, key=f"btn_apr_{reg_id}"):
+                                    if pin_move not in [EQUIPE[quem_move], EQUIPE["Géslei (Agente Administrativo)"]]:
+                                        st.error("❌ PIN incorreto.")
+                                    else:
+                                        depois_novo = processar_foto_miniatura(foto_up_card) if foto_up_card else depois_b64
+                                        payload = {
+                                            "colaborador": quem_move,
+                                            "percentual": 90,
+                                            "pontos": round(peso_tarefa * 0.9, 1),
+                                            "data_hora": obter_hora_brasilia(),
+                                            "foto_base64": empacotar_fotos(antes_b64, depois_novo)
+                                        }
+                                        if atualizar_registro(reg_id, payload):
+                                            st.success("Enviado para aprovação!")
+                                            st.rerun()
 
-        # Coluna 1: A FAZER
+        # Coluna 1: A fazer
         with col_k1:
-            st.subheader(f"📋 A Fazer ({len(df_afazer)})")
+            st.markdown(f'<div class="kanban-col-header"><span>📋 A fazer</span><span class="kanban-badge">{len(df_afazer)}</span></div>', unsafe_allow_html=True)
             if df_afazer.empty:
-                st.caption("Nenhum serviço pendente.")
+                st.caption("Nenhum cartão pendente.")
             for _, row in df_afazer.iterrows():
                 renderizar_cartao(row, "afazer")
 
-        # Coluna 2: EM ANDAMENTO
+        # Coluna 2: Em andamento
         with col_k2:
-            st.subheader(f"⚙️ Em Andamento ({len(df_andamento)})")
+            st.markdown(f'<div class="kanban-col-header" style="border-left-color:#FFAB00;"><span>⚙️ Em andamento</span><span class="kanban-badge">{len(df_andamento)}</span></div>', unsafe_allow_html=True)
             if df_andamento.empty:
-                st.caption("Nenhum serviço em execução.")
+                st.caption("Nenhum cartão em execução.")
             for _, row in df_andamento.iterrows():
                 renderizar_cartao(row, "andamento")
 
-        # Coluna 3: CONCLUÍDO
+        # Coluna 3: Aguardando aprovação
         with col_k3:
-            st.subheader(f"✅ Concluído ({len(df_concluido)})")
+            st.markdown(f'<div class="kanban-col-header" style="border-left-color:#6554C0;"><span>👀 Aguardando aprovação</span><span class="kanban-badge">{len(df_aprovacao)}</span></div>', unsafe_allow_html=True)
+            if df_aprovacao.empty:
+                st.caption("Nada aguardando validação.")
+            for _, row in df_aprovacao.iterrows():
+                renderizar_cartao(row, "aprovacao")
+
+        # Coluna 4: Concluídos
+        with col_k4:
+            st.markdown(f'<div class="kanban-col-header" style="border-left-color:#36B37E;"><span>✅ Concluídos</span><span class="kanban-badge">{len(df_concluido)}</span></div>', unsafe_allow_html=True)
             if df_concluido.empty:
-                st.caption("Nenhum serviço concluído ainda.")
+                st.caption("Nenhum cartão concluído.")
             for _, row in df_concluido.iterrows():
                 renderizar_cartao(row, "concluido")
 
@@ -451,7 +561,7 @@ with aba_direto:
 
 # ================= ABA 3: ÍNDICES E RANKING =================
 with aba_indices:
-    st.subheader("Ranking & Desempenho")
+    st.subheader("Ranking & Desempenho • GTT")
     df = carregar_dados()
     if df.empty:
         st.info("Ainda não há atividades registradas.")
@@ -467,7 +577,7 @@ with aba_indices:
             ranking = df_validos.groupby("colaborador", as_index=False)["pontos"].sum().sort_values(by="pontos", ascending=False)
             ranking["Nome"] = ranking["colaborador"].apply(lambda x: x.split(" (")[0])
             
-            fig = px.bar(ranking, x="pontos", y="Nome", orientation="h", text="pontos", color="pontos", color_continuous_scale="Reds")
+            fig = px.bar(ranking, x="pontos", y="Nome", orientation="h", text="pontos", color="pontos", color_continuous_scale="Blues")
             fig.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, height=350, margin=dict(l=0, r=0, t=10, b=0))
             st.plotly_chart(fig, use_container_width=True)
 
@@ -498,96 +608,4 @@ with aba_historico:
             for idx, row in df_exibir.iterrows()
         }
         
-        if opcoes_reg:
-            selecionado_label = st.selectbox("Selecione o lançamento:", list(opcoes_reg.keys()))
-            reg_atual = opcoes_reg[selecionado_label]
-            reg_id = reg_atual.get("id")
-            colab_dono = reg_atual.get("colaborador", "")
-            tarefa_reg = reg_atual.get("tarefa", "")
-            perc_atual = int(reg_atual.get("progresso_%", 0))
-            antes_atual, depois_atual = extrair_fotos(reg_atual.get("foto_base64", ""))
-            
-            c_img1, c_img2 = st.columns(2)
-            with c_img1:
-                st.markdown("**📸 Antes**")
-                if antes_atual.startswith("data:image"):
-                    st.image(antes_atual, width=220)
-                else:
-                    st.caption("Sem foto de Antes.")
-            with c_img2:
-                st.markdown("**✨ Depois**")
-                if depois_atual.startswith("data:image"):
-                    st.image(depois_atual, width=220)
-                else:
-                    st.caption("Sem foto de Depois.")
-            
-            st.markdown("#### 🔧 Atualizar Registro")
-            st.caption(f"Digite o PIN de **{str(colab_dono).split(' (')[0]}** ou o PIN do **Administrador (Géslei)** para confirmar:")
-            pin_confirmacao = st.text_input("PIN de autorização:", type="password", max_chars=4, key=f"pin_ger_{reg_id}")
-            
-            novo_perc = st.slider(
-                "Atualizar porcentagem concluída:",
-                min_value=0,
-                max_value=100,
-                value=perc_atual,
-                step=10,
-                key=f"slider_hist_{reg_id}"
-            )
-            
-            c_up1, c_up2 = st.columns(2)
-            with c_up1:
-                nova_antes = st.file_uploader("Trocar/Adicionar ANTES:", type=["jpg", "jpeg", "png"], key=f"up_antes_{reg_id}")
-            with c_up2:
-                nova_depois = st.file_uploader("Trocar/Adicionar DEPOIS:", type=["jpg", "jpeg", "png"], key=f"up_depois_{reg_id}")
-            
-            col_b1, col_b2, col_b3, col_b4 = st.columns(4)
-            
-            with col_b1:
-                if st.button("💾 Salvar Alterações", use_container_width=True, key=f"btn_save_{reg_id}"):
-                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
-                        st.error("❌ PIN inválido.")
-                    else:
-                        antes_final = processar_foto_miniatura(nova_antes) if nova_antes else antes_atual
-                        depois_final = processar_foto_miniatura(nova_depois) if nova_depois else depois_atual
-                        peso = TAREFAS.get(tarefa_reg, 20)
-                        novos_pts = round((peso * novo_perc) / 100, 1)
-                        
-                        payload = {
-                            "foto_base64": empacotar_fotos(antes_final, depois_final),
-                            "percentual": novo_perc,
-                            "pontos": novos_pts
-                        }
-                        if atualizar_registro(reg_id, payload):
-                            st.success("✅ Atualizado com sucesso!")
-                            st.rerun()
-            
-            with col_b2:
-                if st.button("🗑️ Excluir Antes", use_container_width=True, key=f"btn_del_a_{reg_id}"):
-                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
-                        st.error("❌ PIN inválido.")
-                    elif not antes_atual:
-                        st.warning("⚠️ Não há foto de Antes.")
-                    else:
-                        if atualizar_registro(reg_id, {"foto_base64": empacotar_fotos("", depois_atual)}):
-                            st.success("✅ Foto Antes removida!")
-                            st.rerun()
-                            
-            with col_b3:
-                if st.button("🗑️ Excluir Depois", use_container_width=True, key=f"btn_del_d_{reg_id}"):
-                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
-                        st.error("❌ PIN inválido.")
-                    elif not depois_atual:
-                        st.warning("⚠️ Não há foto de Depois.")
-                    else:
-                        if atualizar_registro(reg_id, {"foto_base64": empacotar_fotos(antes_atual, "")}):
-                            st.success("✅ Foto Depois removida!")
-                            st.rerun()
-            
-            with col_b4:
-                if st.button("❌ Apagar Registro", use_container_width=True, key=f"btn_del_all_{reg_id}"):
-                    if pin_confirmacao not in [EQUIPE.get(colab_dono), EQUIPE["Géslei (Agente Administrativo)"]]:
-                        st.error("❌ PIN inválido.")
-                    else:
-                        if excluir_registro_completo(reg_id):
-                            st.success("✅ Registro excluído!")
-                            st.rerun()
+        if opcoes_reg
